@@ -5,6 +5,7 @@
 #include "device.h"
 #include "socket.h"
 #include "select.h"
+#include "play.h"
 
 int g_ledRedfd;//led红灯
 int g_ledGreenfd;//led绿灯
@@ -19,7 +20,7 @@ int g_sockfd;
 
 
 int main(void)
-{
+{   
     if(deviceInit() < 0)
     {
         printf("device init failed\n");
@@ -31,7 +32,17 @@ int main(void)
         printf("socket init failed\n");
         redLedSwitch(LIGHT_ON);
     }
-
+    
+    if(get_music() < 0)
+    {
+        close(g_sockfd);
+        close(g_ledBluefd);
+        close(g_ledGreenfd);
+        close(g_ledRedfd);
+        close(g_playfd);
+        exit(-1);
+    }
+    
     myselect();
     while(1)
     ;
