@@ -33,6 +33,7 @@ int main(void)
         redLedSwitch(LIGHT_ON);
     }
     
+    
     if(get_music() < 0)
     {
         close(g_sockfd);
@@ -43,6 +44,12 @@ int main(void)
         exit(-1);
     }
     
+    
+    if(init_shm() < 0)
+    {
+        return -1;
+    }
+
     if(myselect() < 0)
     {
         close(g_sockfd);
@@ -52,6 +59,7 @@ int main(void)
         close(g_playfd);
         exit(-1);
     }
+
     while(1)
     ;
 

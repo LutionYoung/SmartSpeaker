@@ -21,7 +21,6 @@ void* handle(void* arg)//客户端与服务器的连接放在子线程中 避免
     server.sin_port = htons(atoi(PORT));
     inet_pton(AF_INET,IP,&server.sin_addr);
 
-
     while(count--)
     {
         if(connect(g_sockfd,(struct sockaddr*)&server,sizeof(server)) < 0)

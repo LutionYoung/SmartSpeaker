@@ -12,6 +12,7 @@
 #include "select.h"
 #include "main.h"
 #include "device.h"
+#include "play.h"
 
 extern int g_ledRedfd;//led红灯
 extern int g_ledBluefd;//led蓝灯
@@ -74,19 +75,20 @@ int myselect()
                         case -1:
                             return -1;
                         case 0:
-                            puts("long pressed");
+                            puts("button:long pressed");
                             break;
                         case 1:
-                            puts("pressed once");
+                            puts("button:play/stop");
+                            start_pause_continue();
                             break;
                         case 2:
-                            puts("pressed twice");
+                            puts("button:next song");
                             break;
                         case 3:
-                            puts("pressed three times");
+                            puts("button:prev song");
                             break;
                         default:
-                            puts("invalid");
+                            puts("button:invalid");
                             break;
                     }
                 }

@@ -58,23 +58,25 @@ int dlist_addtail(Node** head,char* data)
     return 0;
 }
 
-void dlist_show(Node** head)
+int dlist_show_num(Node** head)
 {
+    int num = 0;
     Node* p = NULL;
     if(*head == NULL)
     {
         puts("dlist is empty");
-        return ;
+        return -1;
     }
 
     p = *head;
     while(p)
     {
-        printf("song name:%s\n",p -> data);
+        //printf("song name:%s\n",p -> data);
+        num++;
         p = p->next;
     }
 
-    return ;
+    return num;
 }
 
 void dlist_free(Node** head)
