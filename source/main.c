@@ -43,7 +43,15 @@ int main(void)
         exit(-1);
     }
     
-    myselect();
+    if(myselect() < 0)
+    {
+        close(g_sockfd);
+        close(g_ledBluefd);
+        close(g_ledGreenfd);
+        close(g_ledRedfd);
+        close(g_playfd);
+        exit(-1);
+    }
     while(1)
     ;
 

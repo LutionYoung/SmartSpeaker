@@ -12,6 +12,7 @@
 #define GPIO_EXPORT_PATH    "/sys/class/gpio/export" 
               //用于导出gpio接口到用户空间
 */
+#include <linux/input.h>
 
 int deviceInit();
 void redLedSwitch(const char* sw);
@@ -20,6 +21,6 @@ void blueLedSwitch(const char* sw);
 
 void LedOn(const char* color);
 
-
+int key_parse();
 
 #endif

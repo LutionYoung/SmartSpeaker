@@ -7,11 +7,15 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <linux/input.h>
+#include <time.h>
+#include <pthread.h>
 
 extern int g_ledRedfd;//led红灯
 extern int g_ledGreenfd;//led绿灯
 extern int g_ledBluefd;//led蓝灯
-extern int g_playfd;//按一下播放暂停 按两下下一首 长按下一首 (语音助手暂时为长按更长时间)   
+extern int g_playfd;//按一下播放暂停 按两下下一首 长按下一首 (语音助手暂时为长按更长时间)
+int flag;//定时器的标志位   
 /*
 extern int g_volUpfd;//控制音量增加
 extern int g_volDownfd;//控制音量减少
@@ -129,3 +133,49 @@ void LedOn(const char* color)
     }
 }
 
+/*
+struct input_event {
+	struct timeval time;时间
+	__u16 type;按键类型为EV_KEY
+	__u16 code;读取的结构体仅对应一个按键，code可不必关心
+	__s32 value;按下去为1，抬起为0
+    }
+*/
+
+void* timer(void* arg)
+{   
+    
+    struct timeval temp = {0,600000};
+    select(0, NULL, NULL, NULL, &temp);
+    
+   /*
+    usleep(600000);
+    */
+    flag = 0;
+}
+
+int key_parse()
+{
+    pthread_t tid = -1;
+    flag = 1; 
+    int count = 0;
+    struct input_event ev = {0};
+    fcntl(g_playfd,F_SETFL,FNDELAY);//此处将文件描述符设置为非阻塞方式，在while中让read函数一直读取g_playfd 
+    if(pthread_create(&tid,NULL,timer,NULL) < 0)
+    {
+        perror("pthread_create");
+        return -1;
+    }
+    
+    while(flag)
+    { 
+        read(g_playfd,&ev,sizeof(ev));
+        if(ev.type == EV_KEY && ev.value == 0)
+        {
+            count++;
+        }
+    }
+    fcntl(g_playfd,F_SETFL,0);//将文件描述符恢复位非阻塞方式
+
+    return count;
+}
