@@ -24,6 +24,8 @@ extern int g_volDownfd;//控制音量减少
 extern int g_voicefd;//语音识别按钮
 */
 extern int g_sockfd;//socket
+extern void* g_shm_addr;
+extern int play_flag;
 fd_set set_backup;//fd集合
 
 int myselect()
@@ -74,19 +76,57 @@ int myselect()
                     {
                         case -1:
                             return -1;
-                        case 0:
+                        case 0://长按
+                        {
                             puts("button:long pressed");
+
+                            /*测试*/
+                            /*
+                            puts("set single loop");
+                            SHM shm;
+                            memcpy(&shm,g_shm_addr,sizeof(shm));
+                            shm.play_mode = SINGLE_LOOP;
+                            memcpy(g_shm_addr,&shm,sizeof(shm));
+                            */
+                            
                             break;
-                        case 1:
+                        }
+                        case 1://按一下 开始播放/播放/暂停
                             puts("button:play/stop");
                             start_pause_continue();
                             break;
-                        case 2:
-                            puts("button:next song");
+                        case 2://连按两下 下一首
+                        {
+                            puts("button:next song");   //若开机还没有播放过歌曲 下一首功能为播放
+                            next_song();
+
+                            /*测试*/
+                            /*
+                            puts("set loop");
+                            SHM shm;
+                            memcpy(&shm,g_shm_addr,sizeof(shm));
+                            shm.play_mode = LOOP;
+                            memcpy(g_shm_addr,&shm,sizeof(shm));
+                            */
+
                             break;
-                        case 3:
-                            puts("button:prev song");
+                        }
+                        case 3://连按三下
+                        {
+                            puts("button:prev song");       //若开机还没有播放过歌曲 上一首功能为播放
+                            prev_song();
+
+                            /*测试*/
+                            /*
+                            puts("set sequenc");
+                            SHM shm;
+                            memcpy(&shm,g_shm_addr,sizeof(shm));
+                            shm.play_mode = SEQUENCE;
+                            memcpy(g_shm_addr,&shm,sizeof(shm));
+                            */
+
                             break;
+                        }
                         default:
                             puts("button:invalid");
                             break;

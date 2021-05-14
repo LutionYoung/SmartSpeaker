@@ -1,40 +1,16 @@
-#include <sys/types.h>
-#include <dirent.h>
-#include <string.h>
-#include <stdio.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
-#include <unistd.h>
-#include <stdlib.h>
-#include "dlist.h"
 #include "play.h"
-#include "dlist.h"
-
-//共享内存
-#define SHM_SIZE 4096  //大小
-#define SHN_KEY 0x12345678 //key值
-
-//播放模式
-#define SEQUENCE 1 //顺序播放
-#define RANDOM   2 //随机播放
-#define LOOP     3 //循环播放  
-
-//共享内存中存放的结构体
-typedef struct _shm
-{
-    int play_mode;//播放模式
-    int song_num;//歌曲总数
-    char cur_song[SONGNAME_LENTH];//当前播放的歌曲
-    char next_song[SONGNAME_LENTH];//下一首歌曲
-    char prev_song[SONGNAME_LENTH];//上一首歌曲
-    pid_t ppid;//父进程id
-    pid_t cpid;//子进程id
-    pid_t gpid;//孙进程id
-}SHM;
 
 extern Node* head;
 void* g_shm_addr;
-int play_flag;//-1为开机后未播放过歌曲或顺序播放完最后一首音乐 1为歌曲播放中 0为播放已暂停
+int play_flag;//-1为开机后未播放过歌曲或播放已结束 1为歌曲播放中 0为播放已暂停
+int ctl_flag;//0为自动播放 -1为上一首 1为下一首
+
+void get_cur_song_path(SHM* shm,char* path)
+{
+    strcpy(path,MUSIC_PATH);
+    strcat(path,"/");
+    strcat(path,shm->cur_song_p->data);
+}
 
 int endof_mp3(char* name)
 {
@@ -107,30 +83,92 @@ int init_shm()
     return 0;
 }
 
+/*信号处理函数*/
+void handler(int sig)
+{
+    if(sig == SIGUSR1)//孙进程歌曲播放结束，子进程发信号给父进程，让父进程更新prev/current/next song
+    {
+        SHM shm;
+        memcpy(&shm,g_shm_addr,sizeof(shm));
+
+        /*人为按键造成上一首、下一首歌的切换*/
+        if(ctl_flag == 1)//由按键引起的下一首的播放
+        { 
+            if(shm.cur_song_p->next == NULL)
+            {
+                shm.cur_song_p = head;
+            }
+            else
+            {
+                shm.cur_song_p = shm.cur_song_p->next;
+            }
+            
+            memcpy(g_shm_addr,&shm,sizeof(shm));
+            ctl_flag = 0;//将ctl_flag拉回0 后边自动播放  
+            return ;
+        }
+        else if(ctl_flag == -1)//由按键引起的上一首的播放
+        {
+            if(shm.cur_song_p->prev == NULL)
+            {
+                shm.cur_song_p = head;
+            }
+            else
+            {
+                shm.cur_song_p = shm.cur_song_p->prev;
+            }
+            
+            memcpy(g_shm_addr,&shm,sizeof(shm));
+            ctl_flag = 0;//将ctl_flag拉回0 后边自动播放    
+            return ;
+        }
+
+        /*自动播放造成下一首歌的切换*/
+        if(shm.play_mode == SEQUENCE)//顺序播放时
+        {
+            shm.cur_song_p = shm.cur_song_p->next;//下一首歌的节点(可能为NULL)
+            if(shm.cur_song_p == NULL)
+            {
+                play_flag = -1;//播放已结束
+            }else
+            {
+                printf("next song name:%s\n",shm.cur_song_p->data);
+            }
+        }
+        else if(shm.play_mode == LOOP)//循环播放时
+        {
+            if(shm.cur_song_p->next == NULL)//播放完最后一首歌时 拉回到头节点
+            {
+                shm.cur_song_p = head;
+            }
+            else
+            {
+                shm.cur_song_p = shm.cur_song_p->next;//不是最后一首歌时 播放下一首
+            }
+        }
+        else//单曲循环时
+        {
+            //不修改current song
+        }
+        memcpy(g_shm_addr,&shm,sizeof(shm));  
+    }
+}
+
 int play_music()
 {
     /*共享内存操作*/
     SHM shm = {SEQUENCE};
     shm.song_num = dlist_show_num(&head);
+    signal(SIGUSR1,handler);
     if(shm.song_num < 0)
     {
         puts("no song to play");
         return -1;
     }
-    else if(shm.song_num == 1)//当前只有一首歌时
-    {
-        strcpy(shm.cur_song,head->data);
-        strcpy(shm.next_song,head->data);
-        strcpy(shm.prev_song,head->data);
-    }
-    else//当前有两首歌及以上时
-    {
-        strcpy(shm.cur_song,head->data);
-        strcpy(shm.next_song,head->next->data);
-        strcpy(shm.prev_song,"NONESONG");
-    }
+
+    shm.cur_song_p = head;
     shm.ppid = getpid();
-    memcpy(g_shm_addr,&shm,sizeof(shm));
+    
 
     /*创建子进程、孙进程*/
     pid_t cpid = fork();
@@ -141,31 +179,46 @@ int play_music()
     }
     if(cpid > 0)//父进程
     {
+        shm.cpid = cpid;
+        memcpy(g_shm_addr,&shm,sizeof(shm));
+        play_flag = 1;//歌曲正在播放
         return 0;
     }
     else//子进程
     {
-        init_shm();//子进程连接共享内存并映射到g_shm_addr上
-        shm.cpid = getpid();
         while(1)
         {
+            init_shm();//子进程连接共享内存并映射到g_shm_addr上
+            bzero(&shm,sizeof(shm));
             memcpy(&shm,g_shm_addr,sizeof(shm));//可获取当前要播放的、下一首、上一首歌曲名
-            ...const char* song_path = get_cur_song_path(shm.cur_song);//得到当前要播放的歌曲的路径,以便让孙进程使用
-            pid_t gpid = fork()
+            if(shm.cur_song_p == NULL)//当前歌曲节点为空时停止播放
+            {
+                puts("Node is NULL,finishing playing");
+                shmdt(g_shm_addr);
+                exit(0);
+            }
+            char path[SONG_PATH_LENTH] = {0};
+            get_cur_song_path(&shm,path);//得到当前要播放的歌曲的路径,以便让孙进程使用
+            pid_t gpid = fork();
             if(gpid < 0)
             {
                 perror("fork");
                 exit(-1);
             }
-            if(gpid > 0)//子进程 (在暂停、播放的信号处理函数中要断开共享内存)
+            if(gpid > 0)//子进程
             {
                 shm.gpid = gpid;
                 memcpy(g_shm_addr,&shm,sizeof(shm));
+                shmdt(g_shm_addr);//断开共享内存
                 wait(NULL);
+                kill(shm.ppid,SIGUSR1);//发信号给父进程让父进程更新当前歌曲
+                puts("finish playing and wait for father process updating current song");
+                usleep(5000);//暂时让子进程等待父进程5ms更新cur_song_p 后期采用信号量解决同步问题
             }
             else//孙进程
             {
-
+                printf("paly song path:%s\n",path);
+                execl("/usr/bin/madplay","madplay",path,NULL);
             }
         }
         /*调试信息*/
@@ -190,10 +243,44 @@ int start_pause_continue()//对应按键按以下的情形
     }
     else if(play_flag == 1)//当前正在播放音乐
     {
-        //pause_play();//暂停播放(通过发信号)
+        pause_play();//暂停播放(通过发信号)
     }
     else//当前播放已暂停
     {
-        //continue_play();//继续播放(通过发信号)
+        continue_play();//继续播放(通过发信号)
     }
+}
+
+int pause_play()//暂停播放
+{
+    SHM shm = {0};
+    memcpy(&shm,g_shm_addr,sizeof(shm));
+    kill(shm.gpid,SIGSTOP);//暂停孙进程(暂停音乐播放)
+    play_flag = 0;
+}
+
+int continue_play()//继续播放
+{
+    SHM shm = {0};
+    memcpy(&shm,g_shm_addr,sizeof(shm));
+    kill(shm.gpid,SIGCONT);//继续运行孙进程(继续音乐播放)
+    play_flag = 1;
+}
+
+int next_song()
+{
+    SHM shm = {0};
+    memcpy(&shm,g_shm_addr,sizeof(shm));
+    ctl_flag = 1;
+    play_flag = 1;
+    kill(shm.gpid,SIGKILL);//杀死孙进程
+}
+
+int prev_song()
+{
+    SHM shm = {0};
+    memcpy(&shm,g_shm_addr,sizeof(shm));
+    ctl_flag = -1;
+    play_flag = 1;
+    kill(shm.gpid,SIGKILL);//杀死孙进程
 }
