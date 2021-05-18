@@ -13,6 +13,7 @@
 #include "main.h"
 #include "device.h"
 #include "play.h"
+#include "asrmain.h"
 
 extern int g_ledRedfd;//led红灯
 extern int g_ledBluefd;//led蓝灯
@@ -76,9 +77,13 @@ int myselect()
                     {
                         case -1:
                             return -1;
-                        case 0://长按
+                        case 0://长按语音识别
                         {
-                            puts("button:long pressed");
+                            //可以加入合成的音频提醒用户说话
+                            if(asr_function() < 0)
+                            {
+                                puts("asr failed!");
+                            }
 
                             /*测试*/
                             /*

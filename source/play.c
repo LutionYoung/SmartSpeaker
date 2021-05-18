@@ -1,9 +1,60 @@
 #include "play.h"
+#include "asrmain.h"
+#include "cJSON.h"
 
 extern Node* head;
+extern char* result_backup;//语音识别时返回识别的数据起始地址备份
+
 void* g_shm_addr;
 int play_flag;//-1为开机后未播放过歌曲或播放已结束 1为歌曲播放中 0为播放已暂停
 int ctl_flag;//0为自动播放 -1为上一首 1为下一首
+
+
+int asr_function()
+{
+    if(play_flag == 1)//如果当前正在播放音乐
+    {
+        pause_play();//暂停播放(通过发信号)
+    }
+
+    pid_t pid;
+    pid = fork();
+    if(pid < 0)
+    {
+        perror("asr_function fork failed");
+        return -1;
+    }
+    if(pid == 0)
+    {
+        execl("/usr/bin/arecord","arecord","-d","5","-f","cd","-r","16000","-c","1","-t","wav","/tmp/asr.wav",NULL);
+    }
+    else
+    {
+        waitpid(pid,NULL,0);
+        result_backup = NULL;
+        asrmain();
+        if(result_backup == NULL)
+        {
+            puts("asr failed");
+            return -1;
+        }
+        printf("\nasr result:%s\n",result_backup);
+        
+
+        /*解析接收到的json数据*/
+        cJSON* json = cJSON_Parse(result_backup);//加载json原始数据
+        cJSON* jsonVal = cJSON_GetObjectItem(json,"result");//获取"result"关键字所对应的value 该value是个字符串数组
+        cJSON* jsonObj = cJSON_GetArrayItem(jsonVal,0);
+
+        printf("json parse:%s\n",jsonObj->valuestring);
+        
+        /*释放资源*/
+        cJSON_Delete(json);
+        free(result_backup);
+
+        continue_play();//继续播放歌曲
+    }
+}
 
 void get_cur_song_path(SHM* shm,char* path)
 {

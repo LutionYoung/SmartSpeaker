@@ -1,10 +1,9 @@
 ARCH ?= x86
 ifeq ($(ARCH),x86)
-	CC = arm-linux-gnueabihf-gcc
+	CC = gcc #arm-linux-gnueabihf-gcc
 else
-	CC = arm-linux-gnueabihf-gcc
+	CC = gcc #arm-linux-gnueabihf-gcc
 endif
-
 TARGET = smartSpeaker
 BUILD_DIR = build
 
@@ -21,7 +20,7 @@ CFLAGS = $(patsubst %,-I%,$(INC_DIR))
 
 
 $(BUILD_DIR)/$(TARGET) : $(OBJS)
-	$(CC) $^ -o $@ -lpthread
+	$(CC) $^ -o $@ -lpthread -lcurl -lm
 $(BUILD_DIR)/%.o : %.c $(INCLUDES) | create_build
 	$(CC) -c $< -o $@ $(CFLAGS)
 
@@ -30,4 +29,3 @@ clean:
 	rm -rf $(BUILD_DIR)
 create_build:
 	mkdir -p $(BUILD_DIR)
-

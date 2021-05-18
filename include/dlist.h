@@ -1,7 +1,5 @@
 #ifndef __DLIST_H__
 #define __DLIST_H__
-//#include "play.h"
-
 #define SONGNAME_LENTH 64//歌曲名的最大长度
 
 typedef struct _node
