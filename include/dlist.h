@@ -13,5 +13,6 @@ int dlist_create(Node** head,char* data);
 int dlist_addtail(Node** head,char* data);
 int dlist_show_num(Node** head);
 void dlist_free(Node** head);
+Node* dlist_search(Node** head,char* search_name);
 
 #endif

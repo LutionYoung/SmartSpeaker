@@ -1,59 +1,52 @@
 #include "play.h"
 #include "asrmain.h"
 #include "cJSON.h"
+#include "play.h"
 
 extern Node* head;
 extern char* result_backup;//语音识别时返回识别的数据起始地址备份
 
 void* g_shm_addr;
 int play_flag;//-1为开机后未播放过歌曲或播放已结束 1为歌曲播放中 0为播放已暂停
-int ctl_flag;//0为自动播放 -1为上一首 1为下一首
+int ctl_flag;//0为自动播放 -1为上一首 1为下一首 2为语音指令导致的歌曲切换
+Node* voice_song;//语音点歌查找到的歌曲节点
 
-
-int asr_function()
+int voice_play(char* name)
 {
-    if(play_flag == 1)//如果当前正在播放音乐
+    Node* cur_song = NULL;
+    char search_name[64] = {0};
+    strncpy(search_name,name,strlen(name)-3);
+    //printf("voice_play1:%s\n",search_name);
+    cur_song = dlist_search(&head,search_name);
+    if(cur_song != NULL)
     {
-        pause_play();//暂停播放(通过发信号)
-    }
-
-    pid_t pid;
-    pid = fork();
-    if(pid < 0)
-    {
-        perror("asr_function fork failed");
-        return -1;
-    }
-    if(pid == 0)
-    {
-        execl("/usr/bin/arecord","arecord","-d","5","-f","cd","-r","16000","-c","1","-t","wav","/tmp/asr.wav",NULL);
+        printf("找到歌曲:%s\n",cur_song->data);
+        //执行播放匹配到的歌曲
+        if(play_flag != -1)//当前已播放歌曲 或播放暂停(子进程已创建)
+        {
+            SHM shm = {0};
+            memcpy(&shm,g_shm_addr,sizeof(shm));
+            ctl_flag = 2;//2表示为语音指令导致的歌曲切换
+            play_flag = 1;
+            shm.cur_song_p = cur_song;
+            memcpy(g_shm_addr,&shm,sizeof(shm));
+            kill(shm.gpid,SIGKILL);//杀死孙进程
+            return 0;
+        }
+        else//当前还未播放过歌曲(子进程未创建)
+        {
+            ctl_flag = 2;//2表示为语音指令导致的歌曲切换
+            voice_song = cur_song;
+            play_music();
+            return 0;
+        }
     }
     else
     {
-        waitpid(pid,NULL,0);
-        result_backup = NULL;
-        asrmain();
-        if(result_backup == NULL)
-        {
-            puts("asr failed");
-            return -1;
-        }
-        printf("\nasr result:%s\n",result_backup);
-        
-
-        /*解析接收到的json数据*/
-        cJSON* json = cJSON_Parse(result_backup);//加载json原始数据
-        cJSON* jsonVal = cJSON_GetObjectItem(json,"result");//获取"result"关键字所对应的value 该value是个字符串数组
-        cJSON* jsonObj = cJSON_GetArrayItem(jsonVal,0);
-
-        printf("json parse:%s\n",jsonObj->valuestring);
-        
-        /*释放资源*/
-        cJSON_Delete(json);
-        free(result_backup);
-
-        continue_play();//继续播放歌曲
+        puts("未匹配到歌曲");
     }
+
+    return 0;
 }
 
 void get_cur_song_path(SHM* shm,char* path)
@@ -173,6 +166,11 @@ void handler(int sig)
             ctl_flag = 0;//将ctl_flag拉回0 后边自动播放    
             return ;
         }
+        else//由语音指令指定播放歌曲而导致的歌曲切换 ctl_flag值为2时
+        {
+            ctl_flag = 0;//将ctl_flag拉回0 后边自动播放
+            return ;
+        }
 
         /*自动播放造成下一首歌的切换*/
         if(shm.play_mode == SEQUENCE)//顺序播放时
@@ -217,7 +215,16 @@ int play_music()
         return -1;
     }
 
-    shm.cur_song_p = head;
+    if(ctl_flag != 2)//当不因为语音点歌导致的播放歌曲时 指定头节点为要播放的歌曲
+    {
+        shm.cur_song_p = head;
+    }
+    else//如果因为语音点歌指定了歌曲 则什么也不做 已在...函数中指定好当前要播放的歌曲
+    {
+        ctl_flag = 0;//拉回ctl_flag的值为0 即后边自动播放
+        shm.cur_song_p = voice_song;//写入语音点歌匹配到的歌曲节点指针
+    }
+
     shm.ppid = getpid();
     
 
@@ -302,6 +309,7 @@ int start_pause_continue()//对应按键按以下的情形
     }
 }
 
+
 int pause_play()//暂停播放
 {
     SHM shm = {0};
@@ -320,18 +328,156 @@ int continue_play()//继续播放
 
 int next_song()
 {
+    if(play_flag == -1)
+    {
+        play_music();
+        return 0;
+    }
     SHM shm = {0};
     memcpy(&shm,g_shm_addr,sizeof(shm));
     ctl_flag = 1;
     play_flag = 1;
     kill(shm.gpid,SIGKILL);//杀死孙进程
+    return 0;
 }
 
 int prev_song()
 {
+    if(play_flag == -1)
+    {
+        play_music();
+        return 0;
+    }
     SHM shm = {0};
     memcpy(&shm,g_shm_addr,sizeof(shm));
     ctl_flag = -1;
     play_flag = 1;
     kill(shm.gpid,SIGKILL);//杀死孙进程
+    return 0;
+}
+
+int asr_function()
+{
+    int asr_ctl_flag = 0;
+    if(play_flag == 1)//如果当前正在播放音乐
+    {
+        pause_play();//暂停播放(通过发信号)
+        asr_ctl_flag = 1;
+    }
+
+    pid_t pid;
+    pid = fork();
+    if(pid < 0)
+    {
+        perror("asr_function fork failed");
+        return -1;
+    }
+    if(pid == 0)
+    {
+        execl("/usr/bin/arecord","arecord","-d","5","-f","cd","-r","16000","-c","1","-t","wav","/tmp/asr.wav",NULL);
+        //exit(0);
+    }
+    else
+    {
+        waitpid(pid,NULL,0);
+        result_backup = NULL;
+        asrmain();
+        if(result_backup == NULL)
+        {
+            puts("result_backup asr failed");
+            return -1;
+        }
+        //printf("\nasr result:%s\n",result_backup);
+        
+
+        /*解析接收到的json数据*/
+        cJSON* json = cJSON_Parse(result_backup);//加载json原始数据
+        cJSON* jsonVal = cJSON_GetObjectItem(json,"result");//获取"result"关键字所对应的value 该value是个字符串数组
+        cJSON* jsonObj = cJSON_GetArrayItem(jsonVal,0);
+
+        /*对返回的命令解析后选择处理方式*/
+        printf("json parse:%s\n",jsonObj->valuestring);
+
+        char buf[128] = {0};
+        char* ret = NULL;
+        strncpy(buf,jsonObj->valuestring,127);
+
+        if((ret = strstr(buf,"播放音乐")) != NULL)
+        {
+            puts("语音识别:播放音乐");
+            if(play_flag == -1)
+            {
+                if(play_music() < 0)//第一次播放音乐
+                {
+                    exit (-1);
+                }
+            }
+            else if(play_flag == 1)
+            {
+                //正在播放音乐时 什么都不做
+            }
+            else
+            {
+                continue_play();//继续播放(通过发信号)
+            }
+        }
+        else if((ret = strstr(buf,"停止播放")) != NULL)
+        {
+            puts("语音识别:停止播放");
+            if(play_flag == 1)
+            {
+                pause_play();//暂停播放(通过发信号)
+            }
+        }
+        else if((ret = strstr(buf,"上一首")) != NULL)
+        {
+            puts("语音识别:上一首");
+            prev_song();
+        }
+        else if((ret = strstr(buf,"下一首")) != NULL)
+        {
+            puts("语音识别:下一首");
+            next_song();
+        }
+        else if((ret = strstr(buf,"继续播放")) != NULL)
+        {
+            puts("语音识别:继续播放");
+            if(play_flag == -1)
+            {
+                if(play_music() < 0)//第一次播放音乐
+                {
+                  exit (-1);
+                }
+                else//当前播放已暂停
+                {
+                    continue_play();//继续播放(通过发信号)
+                }
+            }
+        }
+        else if(strstr(buf,"播放歌曲") != NULL && (*(buf+12) != '\0'))
+        {
+                printf("语音识别歌曲名:%s\n",buf+12);
+                voice_play(buf+12);
+        }
+        else
+        {
+            puts("未成功识别语音指令");
+            if(asr_ctl_flag == 1)
+            {
+                continue_play();//若以上结果均没有则继续播放歌曲
+            }
+        }
+        
+        /*释放资源*/
+        if(json != NULL)
+        {
+            cJSON_Delete(json);
+        }
+        if(result_backup != NULL)
+        {
+             free(result_backup); 
+        }
+        
+        return 0;
+    }
 }

@@ -58,6 +58,32 @@ int dlist_addtail(Node** head,char* data)
     return 0;
 }
 
+Node* dlist_search(Node** head,char* search_name)
+{
+    Node* p = NULL;
+    if(*head == NULL)
+    {
+        puts("dlist is empty");
+        return NULL;
+    }
+
+    p = *head;
+    while(p)
+    {
+        //printf("dlist_search:链表查找歌曲名:%s\n",search_name);
+        if(strstr(p->data,search_name) != NULL)
+        {
+            printf("匹配到歌曲%s\n",p->data);
+            return p;
+        }
+        //printf("与[%s]不匹配\n",p->data);
+        p = p->next;
+    }
+
+    return NULL;
+}
+
+
 int dlist_show_num(Node** head)
 {
     int num = 0;

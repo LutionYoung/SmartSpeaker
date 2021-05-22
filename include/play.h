@@ -46,5 +46,7 @@ int continue_play();//继续播放
 int next_song();//播放下一首
 int prev_song();//播放上一首
 int asr_function();//语音识别
+int play_music();//开始播放歌曲
+int voice_play(char* name);
 
 #endif
